@@ -824,9 +824,11 @@ local function frame()
     Renderer:raycast()
     Renderer:render()
     framequeued = false
+    ctx:onNextFrame(frame)
 end
 
 gurt.body:on('keydown', function(event) keys[event.key] = true end)
 gurt.body:on('keyup', function(event) keys[event.key] = false end)
 Time.sleep(2.0)
-setInterval(frame, 55)
+ctx:onNextFrame(frame)
+
