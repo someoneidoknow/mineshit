@@ -170,7 +170,7 @@ if not math.noise then
         return noise3d(x or 0, y or 0, z or 0)
     end
 end
-local CHUNK = 6
+local CHUNK = 8
 local SCREEN_W, SCREEN_H = 800, 600
 local function clipPlane3D(poly, a,b,c,d)
     local out = {}
@@ -204,6 +204,8 @@ local function drawPoly(points, color)
     end
     ctx:closePath()
     ctx:setFillStyle(color)
+    ctx:setStrokeStyle("#000000")
+    ctx:stroke()
     ctx:fill()
 end
 
@@ -277,7 +279,7 @@ function Renderer:raycast()
 end
 
 
-local WORLD_Y = 8
+local WORLD_Y = 24
 
 function Renderer:isBlockSolid(wx, wy, wz)
     if wy < 0 or wy >= WORLD_Y then return false end
@@ -496,159 +498,174 @@ function World:isSolidForMeshing(wx,wy,wz)
     return c.data[idx(lx,wy,lz)] ~= 0
 end
 
-function World:meshChunk(cx,cz)
-    local verts, faces = {}, {}
-    local function v(x,y,z) verts[#verts+1] = {x*SCALE, y*SCALE, z*SCALE}; return #verts end
-    local function add4(a,b,c,d) faces[#faces+1] = {a,b,c,d} end
-    local Y = WORLD_Y
+function World:meshChunk(chunkX, chunkZ)
+    local vertices, faces = {}, {}
+    local function addVertex(x, y, z)
+        vertices[#vertices + 1] = { x * SCALE, y * SCALE, z * SCALE }
+        return #vertices
+    end
+    local function addQuad(i1, i2, i3, i4)
+        faces[#faces + 1] = { i1, i2, i3, i4 }
+    end
+    local height = WORLD_Y
+    local cols = CHUNK
+    local baseX = chunkX * CHUNK
+    local baseZ = chunkZ * CHUNK
     local mask = {}
-    local function S(ix,iy,iz)
-        local wx = cx*CHUNK + (ix-1)
-        local wy = iy-1
-        local wz = cz*CHUNK + (iz-1)
-    return self:isSolidForMeshing(wx,wy,wz)
+    local function isSolidAt(ix, iy, iz)
+        local wx = baseX + (ix - 1)
+        local wy = iy - 1
+        local wz = baseZ + (iz - 1)
+        return self:isSolidForMeshing(wx, wy, wz)
     end
-    for i=0,CHUNK do
-        local n=1
-        for j=1,Y do
-            for k2=1,CHUNK do
-                local a = S(i,j,k2)
-                local b = S(i+1,j,k2)
-                mask[n]=(a~=b) and (b and 1 or -1) or 0
-                n=n+1
+
+    for xFace = 0, cols do
+        local idx = 1
+        for y = 1, height do
+            for z = 1, cols do
+                local a = isSolidAt(xFace, y, z)
+                local b = isSolidAt(xFace + 1, y, z)
+                mask[idx] = (a ~= b) and (b and 1 or -1) or 0
+                idx = idx + 1
             end
         end
-        local nv,nw=Y,CHUNK
-        n=1
-        for j=1,nv do
-            local k1=1
-            while k1<=nw do
-                local cval=mask[n]
-                if cval~=0 then
-                    local w=1
-                    while k1+w<=nw and w<100 and mask[n+w]==cval do w=w+1 end
-                    local h=1
-                    local done=false
-                    while j+h<=nv and h<100 do
-                        for p=0,w-1 do if mask[n+p+h*nw]~=cval then done=true break end end
-                        if done then break end
-                        h=h+1
+        local rows, widthMax = height, cols
+        idx = 1
+        for row = 1, rows do
+            local col = 1
+            while col <= widthMax do
+                local dir = mask[idx]
+                if dir ~= 0 then
+                    local width = 1
+                    while col + width <= widthMax and mask[idx + width] == dir do width = width + 1 end
+                    local heightRun = 1
+                    while row + heightRun <= rows do
+                        local ok = true
+                        local rowBase = idx + heightRun * widthMax
+                        for c = 0, width - 1 do if mask[rowBase + c] ~= dir then ok = false break end end
+                        if not ok then break end
+                        heightRun = heightRun + 1
                     end
-                    local x = cx*CHUNK + i
-                    local y0=(j-1)
-                    local y1=y0+h
-                    local z0=cz*CHUNK + (k1-1)
-                    local z1=z0+w
-                    local a0=v(x,y0,z0)
-                    local a1=v(x,y1,z0)
-                    local a2=v(x,y1,z1)
-                    local a3=v(x,y0,z1)
-                    if cval==1 then add4(a0,a1,a2,a3) else add4(a0,a3,a2,a1) end
-                    for q=0,h-1 do for p=0,w-1 do mask[n+p+q*nw]=0 end end
-                    k1=k1+w
-                    n=n+w
+                    local x = baseX + xFace
+                    local y0 = row - 1
+                    local y1 = y0 + heightRun
+                    local z0 = baseZ + (col - 1)
+                    local z1 = z0 + width
+                    local a0 = addVertex(x, y0, z0)
+                    local a1 = addVertex(x, y1, z0)
+                    local a2 = addVertex(x, y1, z1)
+                    local a3 = addVertex(x, y0, z1)
+                    if dir == 1 then addQuad(a0, a1, a2, a3) else addQuad(a0, a3, a2, a1) end
+                    for rr = 0, heightRun - 1 do for cc = 0, width - 1 do mask[idx + cc + rr * widthMax] = 0 end end
+                    col = col + width
+                    idx = idx + width
                 else
-                    k1=k1+1
-                    n=n+1
+                    col = col + 1
+                    idx = idx + 1
                 end
             end
         end
     end
-    for j=0,Y do
-        local n=1
-        for k2=1,CHUNK do
-            for i2=1,CHUNK do
-                local a=S(i2,j,k2)
-                local b=S(i2,j+1,k2)
-                mask[n]=(a~=b) and (b and 1 or -1) or 0
-                n=n+1
+
+    for yFace = 0, height do
+        local idx = 1
+        for z = 1, cols do
+            for x = 1, cols do
+                local a = isSolidAt(x, yFace, z)
+                local b = isSolidAt(x, yFace + 1, z)
+                mask[idx] = (a ~= b) and (b and 1 or -1) or 0
+                idx = idx + 1
             end
         end
-        local nv,nw=CHUNK,CHUNK
-        n=1
-        for k1=1,nv do
-            local i1=1
-            while i1<=nw do
-                local cval=mask[n]
-                if cval~=0 then
-                    local w=1
-                    while i1+w<=nw and w<4 and mask[n+w]==cval do w=w+1 end
-                    local h=1
-                    local done=false
-                    while k1+h<=nv and h<4 do
-                        for p=0,w-1 do if mask[n+p+h*nw]~=cval then done=true break end end
-                        if done then break end
-                        h=h+1
+        local rows, widthMax = cols, cols
+        idx = 1
+        for row = 1, rows do
+            local col = 1
+            while col <= widthMax do
+                local dir = mask[idx]
+                if dir ~= 0 then
+                    local width = 1
+                    while col + width <= widthMax and mask[idx + width] == dir do width = width + 1 end
+                    local heightRun = 1
+                    while row + heightRun <= rows do
+                        local ok = true
+                        local rowBase = idx + heightRun * widthMax
+                        for c = 0, width - 1 do if mask[rowBase + c] ~= dir then ok = false break end end
+                        if not ok then break end
+                        heightRun = heightRun + 1
                     end
-                    local y=j
-                    local x0=cx*CHUNK + (i1-1)
-                    local x1=x0+w
-                    local z0=cz*CHUNK + (k1-1)
-                    local z1=z0+h
-                    local a0=v(x0,y,z0)
-                    local a1=v(x1,y,z0)
-                    local a2=v(x1,y,z1)
-                    local a3=v(x0,y,z1)
-                    if cval==1 then add4(a0,a1,a2,a3) else add4(a0,a3,a2,a1) end
-                    for q=0,h-1 do for p=0,w-1 do mask[n+p+q*nw]=0 end end
-                    i1=i1+w
-                    n=n+w
+                    local y = yFace
+                    local x0 = baseX + (col - 1)
+                    local x1 = x0 + width
+                    local z0 = baseZ + (row - 1)
+                    local z1 = z0 + heightRun
+                    local a0 = addVertex(x0, y, z0)
+                    local a1 = addVertex(x1, y, z0)
+                    local a2 = addVertex(x1, y, z1)
+                    local a3 = addVertex(x0, y, z1)
+                    if dir == 1 then addQuad(a0, a1, a2, a3) else addQuad(a0, a3, a2, a1) end
+                    for rr = 0, heightRun - 1 do for cc = 0, width - 1 do mask[idx + cc + rr * widthMax] = 0 end end
+                    col = col + width
+                    idx = idx + width
                 else
-                    i1=i1+1
-                    n=n+1
+                    col = col + 1
+                    idx = idx + 1
                 end
             end
         end
     end
-    for k=0,CHUNK do
-        local n=1
-        for j=1,Y do
-            for i2=1,CHUNK do
-                local a=S(i2,j,k)
-                local b=S(i2,j,k+1)
-                mask[n]=(a~=b) and (b and 1 or -1) or 0
-                n=n+1
+
+    for zFace = 0, cols do
+        local idx = 1
+        for y = 1, height do
+            for x = 1, cols do
+                local a = isSolidAt(x, y, zFace)
+                local b = isSolidAt(x, y, zFace + 1)
+                mask[idx] = (a ~= b) and (b and 1 or -1) or 0
+                idx = idx + 1
             end
         end
-        local nv,nw=Y,CHUNK
-        n=1
-        for j1=1,nv do
-            local i1=1
-            while i1<=nw do
-                local cval=mask[n]
-                if cval~=0 then
-                    local w=1
-                    while i1+w<=nw and w<1 and mask[n+w]==cval do w=w+1 end
-                    local h=1
-                    local done=false
-                    while j1+h<=nv and h<1 do
-                        for p=0,w-1 do if mask[n+p+h*nw]~=cval then done=true break end end
-                        if done then break end
-                        h=h+1
+        local rows, widthMax = height, cols
+        idx = 1
+        for row = 1, rows do
+            local col = 1
+            while col <= widthMax do
+                local dir = mask[idx]
+                if dir ~= 0 then
+                    local width = 1
+                    while col + width <= widthMax and mask[idx + width] == dir do width = width + 1 end
+                    local heightRun = 1
+                    while row + heightRun <= rows do
+                        local ok = true
+                        local rowBase = idx + heightRun * widthMax
+                        for c = 0, width - 1 do if mask[rowBase + c] ~= dir then ok = false break end end
+                        if not ok then break end
+                        heightRun = heightRun + 1
                     end
-                    local z=cz*CHUNK + k
-                    local x0=cx*CHUNK + (i1-1)
-                    local x1=x0+w
-                    local y0=(j1-1)
-                    local y1=y0+h
-                    local a0=v(x0,y0,z)
-                    local a1=v(x1,y0,z)
-                    local a2=v(x1,y1,z)
-                    local a3=v(x0,y1,z)
-                    if cval==1 then add4(a0,a1,a2,a3) else add4(a0,a3,a2,a1) end
-                    for q=0,h-1 do for p=0,w-1 do mask[n+p+q*nw]=0 end end
-                    i1=i1+w
-                    n=n+w
+                    local z = baseZ + zFace
+                    local x0 = baseX + (col - 1)
+                    local x1 = x0 + width
+                    local y0 = row - 1
+                    local y1 = y0 + heightRun
+                    local a0 = addVertex(x0, y0, z)
+                    local a1 = addVertex(x1, y0, z)
+                    local a2 = addVertex(x1, y1, z)
+                    local a3 = addVertex(x0, y1, z)
+                    if dir == 1 then addQuad(a0, a1, a2, a3) else addQuad(a0, a3, a2, a1) end
+                    for rr = 0, heightRun - 1 do for cc = 0, width - 1 do mask[idx + cc + rr * widthMax] = 0 end end
+                    col = col + width
+                    idx = idx + width
                 else
-                    i1=i1+1
-                    n=n+1
+                    col = col + 1
+                    idx = idx + 1
                 end
             end
         end
     end
-    local c = self:getChunk(cx,cz) or self:newChunk(cx,cz)
-    c.verts, c.faces = verts, faces
-    return verts, faces
+
+    local chunk = self:getChunk(chunkX, chunkZ) or self:newChunk(chunkX, chunkZ)
+    chunk.verts, chunk.faces = vertices, faces
+    return vertices, faces
 end
 
 function World:meshChunk2(cx, cz)
@@ -701,7 +718,7 @@ function World:meshChunk2(cx, cz)
 end
 
 
-local RENDER_DISTANCE = 5
+local RENDER_DISTANCE = 2
 
 function World:updateChunksAroundPlayer(playerX, playerZ)
     local pcx = math.floor(playerX / CHUNK)
