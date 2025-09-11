@@ -4,7 +4,7 @@ local canvas = gurt.select("#poly-test")
 local ctx = canvas:withContext("2d")
 local Renderer = { 
     meshes = {}, 
-    camera = { pos = { 0, -5, -3 }, rot = { 0, 0, 0 }, fov = 200, cx = 400, cy = 300 },
+    camera = { pos = { 0, -30, -3 }, rot = { 0, 0, 0 }, fov = 200, cx = 400, cy = 300 },
     sun = { dir = { 0.5, -1, 0.3 }, ambient = 0.3, diffuse = 0.7 },
     hitFace = nil,
     worldChunks = {}
@@ -281,7 +281,7 @@ function Renderer:raycast()
 end
 
 
-local WORLD_Y = 24
+local WORLD_Y = 32
 
 function Renderer:isBlockSolid(wx, wy, wz)
     if wy < 0 or wy >= WORLD_Y then return false end
