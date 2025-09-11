@@ -887,7 +887,7 @@ World:updateChunksAroundPlayer(Renderer.camera.pos[1], Renderer.camera.pos[3])
 local framequeued = false
 local lastPlayerCX, lastPlayerCZ = nil, nil
 local function frame()
-    if framequeued then return end
+    if framequeued then framequeued = false onNextFrame(frame) return end
     framequeued = true
     local moved = false
     if keys['W'] then
@@ -953,7 +953,6 @@ local function frame()
     if moved then
         Renderer:render()
     end
-    framequeued = false
     onNextFrame(frame)
 end
 
