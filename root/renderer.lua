@@ -320,28 +320,48 @@ function Renderer:render()
             local v2x, v2y, v2z = wc[1] - wa[1], wc[2] - wa[2], wc[3] - wa[3]
             local nx, ny, nz = cross(v1x, v1y, v1z, v2x, v2y, v2z)
             nx, ny, nz = normalize(nx, ny, nz)
-            local intensity = calculateLighting(nx, ny, nz, self.sun)
-            local baseColor = m.color or "#888888"
-            local faceColor = (f.color or f[5])
-            local baseColor = faceColor or m.color or "#888888"
-            local litColor = applyLighting(baseColor, intensity)
 
-            local poly = {}
-            poly[#poly+1] = { vv[i1][1], vv[i1][2], vv[i1][3] }
-            poly[#poly+1] = { vv[i2][1], vv[i2][2], vv[i2][3] }
-            poly[#poly+1] = { vv[i3][1], vv[i3][2], vv[i3][3] }
-            if i4 then poly[#poly+1] = { vv[i4][1], vv[i4][2], vv[i4][3] } end
-            poly = clipFrustumView(poly, self.camera)
-            if #poly >= 3 then
-                local sp = {}
-                local zsum = 0
-                for i=1,#poly do
-                    local px, py, pz = projectView(self.camera, poly[i][1], poly[i][2], poly[i][3])
-                    sp[i] = { px, py, pz }
-                    zsum = zsum + pz
+            local cxw, cyw, czw
+            if i4 then
+                local wd = wv[i4]
+                cxw = 0.25*(wa[1]+wb[1]+wc[1]+wd[1])
+                cyw = 0.25*(wa[2]+wb[2]+wc[2]+wd[2])
+                czw = 0.25*(wa[3]+wb[3]+wc[3]+wd[3])
+            else
+                cxw = (wa[1]+wb[1]+wc[1])*(1/3)
+                cyw = (wa[2]+wb[2]+wc[2])*(1/3)
+                czw = (wa[3]+wb[3]+wc[3])*(1/3)
+            end
+            local camwx = self.camera.pos[1]
+            local camwy = -self.camera.pos[2]
+            local camwz = self.camera.pos[3]
+            local ddx = camwx - cxw
+            local ddy = -camwy - cyw
+            local ddz = camwz - czw
+            if nx*ddx + ny*ddy + nz*ddz < 0 then
+                local intensity = calculateLighting(nx, ny, nz, self.sun)
+                local baseColor = m.color or "#888888"
+                local faceColor = (f.color or f[5])
+                local baseColor = faceColor or m.color or "#888888"
+                local litColor = applyLighting(baseColor, intensity)
+
+                local poly = {}
+                poly[#poly+1] = { vv[i1][1], vv[i1][2], vv[i1][3] }
+                poly[#poly+1] = { vv[i2][1], vv[i2][2], vv[i2][3] }
+                poly[#poly+1] = { vv[i3][1], vv[i3][2], vv[i3][3] }
+                if i4 then poly[#poly+1] = { vv[i4][1], vv[i4][2], vv[i4][3] } end
+                poly = clipFrustumView(poly, self.camera)
+                if #poly >= 3 then
+                    local sp = {}
+                    local zsum = 0
+                    for i=1,#poly do
+                        local px, py, pz = projectView(self.camera, poly[i][1], poly[i][2], poly[i][3])
+                        sp[i] = { px, py, pz }
+                        zsum = zsum + pz
+                    end
+                    local key = zsum / #sp
+                    all[#all+1] = { sp, litColor, key }
                 end
-                local key = zsum / #sp
-                all[#all+1] = { sp, litColor, key }
             end
         end
     end
@@ -400,13 +420,14 @@ local cubeVerts = {
 }
 
 local cubeFaces = {
-    {1,2,3,4},
-    {5,6,7,8},
-    {1,5,6,2},
-    {2,6,7,3},
-    {3,7,8,4},
-    {4,8,5,1}
+    {2,3,4,1},
+    {8,7,6,5},
+    {4,8,5,1},
+    {6,7,3,2},
+    {4,8,7,3},
+    {5,6,2,1}
 }
+
 
 local cube = Renderer:addMesh(cubeVerts, cubeFaces, { position = { 0, 2, 0 }, rotation = { 0, 0, 0 }, scale = { 1, 1, 1 }, color = "#ff0000" })
 
