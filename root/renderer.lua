@@ -311,6 +311,7 @@ end
 
 function Renderer:render()
     ctx:clearRect(0, 0, SCREEN_W, SCREEN_H)
+    ctx:fillRect(0, 0, SCREEN_W, SCREEN_H, "#87CEEB")
     local all = {}
     for _, m in ipairs(self.meshes) do
         local vv, wv = {}, {}
@@ -808,7 +809,7 @@ function World:meshChunk2(cx, cz)
 end
 
 
-local RENDER_DISTANCE = 2
+local RENDER_DISTANCE = 1.5
 
 function World:updateChunksAroundPlayer(playerX, playerZ)
     local pcx = math.floor(playerX / CHUNK)
