@@ -195,16 +195,16 @@ local function clipFrustumView(poly, cam)
     return clipPlane3D(poly, 0, 0, 1, -0.01)
 end
 
-local function drawTri(p1, p2, p3, color)
+local function drawPoly(points, color)
+    if #points < 3 then return end
     ctx:beginPath()
-    ctx:moveTo(p1[1], p1[2])
-    ctx:lineTo(p2[1], p2[2])
-    ctx:lineTo(p3[1], p3[2])
+    ctx:moveTo(points[1][1], points[1][2])
+    for i = 2, #points do
+        ctx:lineTo(points[i][1], points[i][2])
+    end
     ctx:closePath()
     ctx:setFillStyle(color)
     ctx:fill()
-    --ctx:setStrokeStyle("#000000")
-    --ctx:stroke()
 end
 
 function Renderer:addMesh(verts, faces, opts)
@@ -310,8 +310,8 @@ function Renderer:render()
             vv[i] = { vx, vy, vz }
         end
         for _, f in ipairs(m.faces) do
-            local a, b, c = vv[f[1]], vv[f[2]], vv[f[3]]
-            local wa, wb, wc = wv[f[1]], wv[f[2]], wv[f[3]]
+            local i1, i2, i3, i4 = f[1], f[2], f[3], f[4]
+            local wa, wb, wc = wv[i1], wv[i2], wv[i3]
             local v1x, v1y, v1z = wb[1] - wa[1], wb[2] - wa[2], wb[3] - wa[3]
             local v2x, v2y, v2z = wc[1] - wa[1], wc[2] - wa[2], wc[3] - wa[3]
             local nx, ny, nz = cross(v1x, v1y, v1z, v2x, v2y, v2z)
@@ -320,39 +320,45 @@ function Renderer:render()
             local baseColor = m.color or "#888888"
             local litColor = applyLighting(baseColor, intensity)
 
-            local poly = { {a[1],a[2],a[3]}, {b[1],b[2],b[3]}, {c[1],c[2],c[3]} }
+            local poly = {}
+            poly[#poly+1] = { vv[i1][1], vv[i1][2], vv[i1][3] }
+            poly[#poly+1] = { vv[i2][1], vv[i2][2], vv[i2][3] }
+            poly[#poly+1] = { vv[i3][1], vv[i3][2], vv[i3][3] }
+            if i4 then poly[#poly+1] = { vv[i4][1], vv[i4][2], vv[i4][3] } end
             poly = clipFrustumView(poly, self.camera)
             if #poly >= 3 then
                 local sp = {}
+                local zsum = 0
                 for i=1,#poly do
                     local px, py, pz = projectView(self.camera, poly[i][1], poly[i][2], poly[i][3])
                     sp[i] = { px, py, pz }
+                    zsum = zsum + pz
                 end
-                for i=2,#sp-1 do
-                    local p1, p2, p3 = sp[1], sp[i], sp[i+1]
-                    local key = (p1[3] + p2[3] + p3[3]) * (1/3)
-                    all[#all+1] = { p1, p2, p3, litColor, key }
-                end
+                local key = zsum / #sp
+                all[#all+1] = { sp, litColor, key }
             end
         end
     end
-    table.sort(all, function(a,b) return a[5] > b[5] end)
+    table.sort(all, function(a,b) return a[3] > b[3] end)
     for i=1,#all do
         local t = all[i]
-        drawTri(t[1], t[2], t[3], t[4])
+        drawPoly(t[1], t[2])
     end
     
     if self.hitFace then
     local h = self.hitFace
     local q
-    if h.nx ~= 0 then
-        local X = h.nx > 0 and h.x + 1 or h.x
+    local hnx = h.nx or 0
+    local hny = h.ny or 0
+    local hnz = h.nz or 0
+    if hnx ~= 0 then
+        local X = hnx > 0 and h.x + 1 or h.x
         q = { {X,h.y,h.z}, {X,h.y+1,h.z}, {X,h.y+1,h.z+1}, {X,h.y,h.z+1} }
-    elseif h.ny ~= 0 then
-        local Y = h.ny > 0 and h.y + 1 or h.y
+    elseif hny ~= 0 then
+        local Y = hny > 0 and h.y + 1 or h.y
         q = { {h.x,Y,h.z}, {h.x+1,Y,h.z}, {h.x+1,Y,h.z+1}, {h.x,Y,h.z+1} }
     else
-        local Z = h.nz > 0 and h.z + 1 or h.z
+        local Z = hnz > 0 and h.z + 1 or h.z
         q = { {h.x,h.y,Z}, {h.x+1,h.y,Z}, {h.x+1,h.y+1,Z}, {h.x,h.y+1,Z} }
     end
 
@@ -368,9 +374,7 @@ function Renderer:render()
             local px,py,pz = projectView(self.camera, poly[i][1], poly[i][2], poly[i][3])
             sp[i] = {px,py,pz}
         end
-        for i=2,#sp-1 do
-            drawTri(sp[1], sp[i], sp[i+1], "#ffff00")
-        end
+        drawPoly(sp, "#ffff00")
     end
 end
 
@@ -390,12 +394,12 @@ local cubeVerts = {
 }
 
 local cubeFaces = {
-    {1,2,3},{1,3,4},
-    {5,6,7},{5,7,8},
-    {1,5,6},{1,6,2},
-    {2,6,7},{2,7,3},
-    {3,7,8},{3,8,4},
-    {4,8,5},{4,5,1}
+    {1,2,3,4},
+    {5,6,7,8},
+    {1,5,6,2},
+    {2,6,7,3},
+    {3,7,8,4},
+    {4,8,5,1}
 }
 
 local cube = Renderer:addMesh(cubeVerts, cubeFaces, { position = { 0, 2, 0 }, rotation = { 0, 0, 0 }, scale = { 1, 1, 1 }, color = "#ff0000" })
@@ -475,7 +479,7 @@ end
 function World:meshChunk(cx,cz)
     local verts, faces = {}, {}
     local function v(x,y,z) verts[#verts+1] = {x*SCALE, y*SCALE, z*SCALE}; return #verts end
-    local function add4(a,b,c,d) faces[#faces+1]={a,b,c}; faces[#faces+1]={a,c,d} end
+    local function add4(a,b,c,d) faces[#faces+1] = {a,b,c,d} end
     local Y = WORLD_Y
     local mask = {}
     local function S(ix,iy,iz)
@@ -638,8 +642,7 @@ function World:meshChunk2(cx, cz)
         local b=v(x1,y1,z1)
         local c=v(x2,y2,z2)
         local d=v(x3,y3,z3)
-        faces[#faces+1]={a,b,c}
-        faces[#faces+1]={a,c,d}
+        faces[#faces+1]={a,b,c,d}
     end
 
     for lx=0,CHUNK-1 do
