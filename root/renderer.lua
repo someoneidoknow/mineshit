@@ -211,6 +211,19 @@ local function drawPoly(points, color)
     ctx:fill()
 end
 
+local function strokePoly(points, color, lineWidth)
+    if #points < 2 then return end
+    ctx:beginPath()
+    ctx:moveTo(points[1][1], points[1][2])
+    for i = 2, #points do
+        ctx:lineTo(points[i][1], points[i][2])
+    end
+    ctx:closePath()
+    if color then ctx:setStrokeStyle(color) end
+    if lineWidth then ctx:setLineWidth(lineWidth) end
+    ctx:stroke()
+end
+
 function Renderer:addMesh(verts, faces, opts)
     local m = {
         vertices = verts,
@@ -400,7 +413,7 @@ function Renderer:render()
             local px,py,pz = projectView(self.camera, poly[i][1], poly[i][2], poly[i][3])
             sp[i] = {px,py,pz}
         end
-        drawPoly(sp, "#ffff00")
+    strokePoly(sp, "#ffff00", 2)
     end
 end
 
