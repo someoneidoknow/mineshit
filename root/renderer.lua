@@ -429,6 +429,10 @@ function World:placeBlock(wx, wy, wz)
     local lz = wz - cz * CHUNK
     chunk.data[idx(lx, wy, lz)] = 1
     self:remeshChunk(cx, cz)
+    if lx == 0 then self:remeshChunk(cx-1, cz) end
+    if lx == CHUNK-1 then self:remeshChunk(cx+1, cz) end
+    if lz == 0 then self:remeshChunk(cx, cz-1) end
+    if lz == CHUNK-1 then self:remeshChunk(cx, cz+1) end
     return true
 end
 
@@ -442,6 +446,10 @@ function World:removeBlock(wx, wy, wz)
     local lz = wz - cz * CHUNK
     chunk.data[idx(lx, wy, lz)] = 0
     self:remeshChunk(cx, cz)
+    if lx == 0 then self:remeshChunk(cx-1, cz) end
+    if lx == CHUNK-1 then self:remeshChunk(cx+1, cz) end
+    if lz == 0 then self:remeshChunk(cx, cz-1) end
+    if lz == CHUNK-1 then self:remeshChunk(cx, cz+1) end
     return true
 end
 
@@ -476,6 +484,18 @@ function World:isSolid(wx,wy,wz)
     return c.data[idx(lx,wy,lz)] ~= 0
 end
 
+function World:isSolidForMeshing(wx,wy,wz)
+    if wy < 0 then return true end
+    if wy >= WORLD_Y then return false end
+    local cx = math.floor(wx/CHUNK)
+    local cz = math.floor(wz/CHUNK)
+    local c = self:getChunk(cx,cz)
+    if not c then return false end
+    local lx = wx - cx*CHUNK
+    local lz = wz - cz*CHUNK
+    return c.data[idx(lx,wy,lz)] ~= 0
+end
+
 function World:meshChunk(cx,cz)
     local verts, faces = {}, {}
     local function v(x,y,z) verts[#verts+1] = {x*SCALE, y*SCALE, z*SCALE}; return #verts end
@@ -486,14 +506,14 @@ function World:meshChunk(cx,cz)
         local wx = cx*CHUNK + (ix-1)
         local wy = iy-1
         local wz = cz*CHUNK + (iz-1)
-        return self:isSolid(wx,wy,wz)
+    return self:isSolidForMeshing(wx,wy,wz)
     end
     for i=0,CHUNK do
         local n=1
         for j=1,Y do
             for k2=1,CHUNK do
-                local a = (i>0) and S(i,j,k2) or false
-                local b = (i<CHUNK) and S(i+1,j,k2) or false
+                local a = S(i,j,k2)
+                local b = S(i+1,j,k2)
                 mask[n]=(a~=b) and (b and 1 or -1) or 0
                 n=n+1
             end
@@ -506,10 +526,10 @@ function World:meshChunk(cx,cz)
                 local cval=mask[n]
                 if cval~=0 then
                     local w=1
-                    while k1+w<=nw and w<4 and mask[n+w]==cval do w=w+1 end
+                    while k1+w<=nw and w<100 and mask[n+w]==cval do w=w+1 end
                     local h=1
                     local done=false
-                    while j+h<=nv and h<4 do
+                    while j+h<=nv and h<100 do
                         for p=0,w-1 do if mask[n+p+h*nw]~=cval then done=true break end end
                         if done then break end
                         h=h+1
@@ -538,8 +558,8 @@ function World:meshChunk(cx,cz)
         local n=1
         for k2=1,CHUNK do
             for i2=1,CHUNK do
-                local a=(j>0) and S(i2,j,k2) or false
-                local b=(j<Y) and S(i2,j+1,k2) or false
+                local a=S(i2,j,k2)
+                local b=S(i2,j+1,k2)
                 mask[n]=(a~=b) and (b and 1 or -1) or 0
                 n=n+1
             end
@@ -584,8 +604,8 @@ function World:meshChunk(cx,cz)
         local n=1
         for j=1,Y do
             for i2=1,CHUNK do
-                local a=(k>0) and S(i2,j,k) or false
-                local b=(k<CHUNK) and S(i2,j,k+1) or false
+                local a=S(i2,j,k)
+                local b=S(i2,j,k+1)
                 mask[n]=(a~=b) and (b and 1 or -1) or 0
                 n=n+1
             end
@@ -681,7 +701,7 @@ function World:meshChunk2(cx, cz)
 end
 
 
-local RENDER_DISTANCE = 1
+local RENDER_DISTANCE = 5
 
 function World:updateChunksAroundPlayer(playerX, playerZ)
     local pcx = math.floor(playerX / CHUNK)
