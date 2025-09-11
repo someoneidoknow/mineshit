@@ -499,6 +499,10 @@ function World:isSolidForMeshing(wx,wy,wz)
 end
 
 function World:meshChunk(chunkX, chunkZ)
+    if not self:getChunk(chunkX - 1, chunkZ) then self:generateChunk(chunkX - 1, chunkZ) end
+    if not self:getChunk(chunkX + 1, chunkZ) then self:generateChunk(chunkX + 1, chunkZ) end
+    if not self:getChunk(chunkX, chunkZ - 1) then self:generateChunk(chunkX, chunkZ - 1) end
+    if not self:getChunk(chunkX, chunkZ + 1) then self:generateChunk(chunkX, chunkZ + 1) end
     local vertices, faces = {}, {}
     local function addVertex(x, y, z)
         vertices[#vertices + 1] = { x * SCALE, y * SCALE, z * SCALE }
