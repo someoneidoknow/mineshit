@@ -766,41 +766,46 @@ end
 World:updateChunksAroundPlayer(Renderer.camera.pos[1], Renderer.camera.pos[3])
 local framequeued = false
 local lastPlayerCX, lastPlayerCZ = nil, nil
-
 local function frame()
     if framequeued then return end
     framequeued = true
+    local moved = false
     if keys['W'] then
         local forward = { -math.sin(Renderer.camera.rot[2]), 0, math.cos(Renderer.camera.rot[2]) }
         Renderer.camera.pos[1] = Renderer.camera.pos[1] + forward[1] * 0.2
         Renderer.camera.pos[3] = Renderer.camera.pos[3] + forward[3] * 0.2
+        moved = true
     end
     if keys['S'] then
         local forward = { -math.sin(Renderer.camera.rot[2]), 0, math.cos(Renderer.camera.rot[2]) }
         Renderer.camera.pos[1] = Renderer.camera.pos[1] - forward[1] * 0.2
         Renderer.camera.pos[3] = Renderer.camera.pos[3] - forward[3] * 0.2
+        moved = true
     end
     if keys['A'] then
         local right = { math.cos(Renderer.camera.rot[2]), 0, math.sin(Renderer.camera.rot[2]) }
         Renderer.camera.pos[1] = Renderer.camera.pos[1] - right[1] * 0.2
         Renderer.camera.pos[3] = Renderer.camera.pos[3] - right[3] * 0.2
+        moved = true
     end
     if keys['D'] then
         local right = { math.cos(Renderer.camera.rot[2]), 0, math.sin(Renderer.camera.rot[2]) }
         Renderer.camera.pos[1] = Renderer.camera.pos[1] + right[1] * 0.2
         Renderer.camera.pos[3] = Renderer.camera.pos[3] + right[3] * 0.2
+        moved = true
     end
-    if keys['Q'] then Renderer.camera.pos[2] = Renderer.camera.pos[2] + 0.2 end
-    if keys['E'] then Renderer.camera.pos[2] = Renderer.camera.pos[2] - 0.2 end
-    if keys['Left'] then Renderer.camera.rot[2] = Renderer.camera.rot[2] + 0.05 end
-    if keys['Right'] then Renderer.camera.rot[2] = Renderer.camera.rot[2] - 0.05 end
-    if keys['Up'] then Renderer.camera.rot[1] = Renderer.camera.rot[1] - 0.05 end
-    if keys['Down'] then Renderer.camera.rot[1] = Renderer.camera.rot[1] + 0.05 end
-    
+    if keys['Q'] then Renderer.camera.pos[2] = Renderer.camera.pos[2] + 0.2 moved = true end
+    if keys['E'] then Renderer.camera.pos[2] = Renderer.camera.pos[2] - 0.2 moved = true end
+    if keys['Left'] then Renderer.camera.rot[2] = Renderer.camera.rot[2] + 0.05 moved = true end
+    if keys['Right'] then Renderer.camera.rot[2] = Renderer.camera.rot[2] - 0.05 moved = true end
+    if keys['Up'] then Renderer.camera.rot[1] = Renderer.camera.rot[1] - 0.05 moved = true end
+    if keys['Down'] then Renderer.camera.rot[1] = Renderer.camera.rot[1] + 0.05 moved = true end
+
     if keys['F'] and Renderer.hitFace then
         local hit = Renderer.hitFace
         World:removeBlock(hit.x, hit.y, hit.z)
         keys['F'] = false
+        moved = true
     end
     
     if keys['R'] and Renderer.hitFace then
@@ -810,6 +815,7 @@ local function frame()
         local placeZ = hit.z + hit.nz
         World:placeBlock(placeX, placeY, placeZ)
         keys['R'] = false
+        moved = true
     end
     
     local currentPlayerCX = math.floor(Renderer.camera.pos[1] / CHUNK)
@@ -819,10 +825,12 @@ local function frame()
         World:updateChunksAroundPlayer(Renderer.camera.pos[1], Renderer.camera.pos[3])
         lastPlayerCX = currentPlayerCX
         lastPlayerCZ = currentPlayerCZ
+        moved = true
     end
-    
     Renderer:raycast()
-    Renderer:render()
+    if moved then
+        Renderer:render()
+    end
     framequeued = false
     onNextFrame(frame)
 end
@@ -831,5 +839,3 @@ gurt.body:on('keydown', function(event) keys[event.key] = true end)
 gurt.body:on('keyup', function(event) keys[event.key] = false end)
 Time.sleep(2.0)
 onNextFrame(frame)
-
-
