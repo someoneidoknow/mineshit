@@ -809,7 +809,7 @@ function World:meshChunk2(cx, cz)
 end
 
 
-local RENDER_DISTANCE = 1.5
+local RENDER_DISTANCE = 2
 
 function World:updateChunksAroundPlayer(playerX, playerZ)
     local pcx = math.floor(playerX / CHUNK)
