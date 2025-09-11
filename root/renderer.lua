@@ -172,6 +172,10 @@ if not math.noise then
 end
 local CHUNK = 8
 local SCREEN_W, SCREEN_H = 800, 600
+local MATERIAL_COLOR = {
+    [1] = "#00aa00",
+    [2] = "#777777"
+}
 local function clipPlane3D(poly, a,b,c,d)
     local out = {}
     local p0 = poly[#poly]
@@ -204,8 +208,6 @@ local function drawPoly(points, color)
     end
     ctx:closePath()
     ctx:setFillStyle(color)
-    ctx:setStrokeStyle("#000000")
-    ctx:stroke()
     ctx:fill()
 end
 
@@ -320,6 +322,8 @@ function Renderer:render()
             nx, ny, nz = normalize(nx, ny, nz)
             local intensity = calculateLighting(nx, ny, nz, self.sun)
             local baseColor = m.color or "#888888"
+            local faceColor = (f.color or f[5])
+            local baseColor = faceColor or m.color or "#888888"
             local litColor = applyLighting(baseColor, intensity)
 
             local poly = {}
@@ -407,6 +411,7 @@ local cubeFaces = {
 local cube = Renderer:addMesh(cubeVerts, cubeFaces, { position = { 0, 2, 0 }, rotation = { 0, 0, 0 }, scale = { 1, 1, 1 }, color = "#ff0000" })
 
 local SCALE = 1
+local currentBlockId = 1
 
 local World = {chunks = {}}
 local function k(cx,cz) return cx.."|"..cz end
@@ -421,7 +426,7 @@ function World:newChunk(cx,cz)
     Renderer.worldChunks[k(cx,cz)] = c
     return c
 end
-function World:placeBlock(wx, wy, wz)
+function World:placeBlock(wx, wy, wz, val)
     if wy < 0 or wy >= WORLD_Y then return false end
     local cx = math.floor(wx / CHUNK)
     local cz = math.floor(wz / CHUNK)
@@ -429,7 +434,7 @@ function World:placeBlock(wx, wy, wz)
     if not chunk then return false end
     local lx = wx - cx * CHUNK
     local lz = wz - cz * CHUNK
-    chunk.data[idx(lx, wy, lz)] = 1
+    chunk.data[idx(lx, wy, lz)] = val or 1
     self:remeshChunk(cx, cz)
     if lx == 0 then self:remeshChunk(cx-1, cz) end
     if lx == CHUNK-1 then self:remeshChunk(cx+1, cz) end
@@ -498,6 +503,17 @@ function World:isSolidForMeshing(wx,wy,wz)
     return c.data[idx(lx,wy,lz)] ~= 0
 end
 
+function World:getBlock(wx,wy,wz)
+    if wy < 0 or wy >= WORLD_Y then return 0 end
+    local cx = math.floor(wx/CHUNK)
+    local cz = math.floor(wz/CHUNK)
+    local c = self:getChunk(cx,cz)
+    if not c then return 0 end
+    local lx = wx - cx*CHUNK
+    local lz = wz - cz*CHUNK
+    return c.data[idx(lx,wy,lz)] or 0
+end
+
 function World:meshChunk(chunkX, chunkZ)
     if not self:getChunk(chunkX - 1, chunkZ) then self:generateChunk(chunkX - 1, chunkZ) end
     if not self:getChunk(chunkX + 1, chunkZ) then self:generateChunk(chunkX + 1, chunkZ) end
@@ -515,21 +531,31 @@ function World:meshChunk(chunkX, chunkZ)
     local cols = CHUNK
     local baseX = chunkX * CHUNK
     local baseZ = chunkZ * CHUNK
-    local mask = {}
-    local function isSolidAt(ix, iy, iz)
+    local dirMask, matMask = {}, {}
+    local function sample(ix, iy, iz)
         local wx = baseX + (ix - 1)
         local wy = iy - 1
         local wz = baseZ + (iz - 1)
-        return self:isSolidForMeshing(wx, wy, wz)
+        return self:getBlock(wx, wy, wz)
     end
 
     for xFace = 0, cols do
         local idx = 1
+        local idx = 1
         for y = 1, height do
             for z = 1, cols do
-                local a = isSolidAt(xFace, y, z)
-                local b = isSolidAt(xFace + 1, y, z)
-                mask[idx] = (a ~= b) and (b and 1 or -1) or 0
+                local aId = sample(xFace, y, z)
+                local bId = sample(xFace + 1, y, z)
+                local aSolid = aId ~= 0
+                local bSolid = bId ~= 0
+                if aSolid ~= bSolid then
+                    local dir = bSolid and 1 or -1
+                    dirMask[idx] = dir
+                    matMask[idx] = dir == 1 and bId or aId
+                else
+                    dirMask[idx] = 0
+                    matMask[idx] = 0
+                end
                 idx = idx + 1
             end
         end
@@ -538,15 +564,16 @@ function World:meshChunk(chunkX, chunkZ)
         for row = 1, rows do
             local col = 1
             while col <= widthMax do
-                local dir = mask[idx]
+                local dir = dirMask[idx]
                 if dir ~= 0 then
+                    local mat = matMask[idx]
                     local width = 1
-                    while col + width <= widthMax and mask[idx + width] == dir do width = width + 1 end
+                    while col + width <= widthMax and dirMask[idx + width] == dir and matMask[idx + width] == mat do width = width + 1 end
                     local heightRun = 1
                     while row + heightRun <= rows do
                         local ok = true
                         local rowBase = idx + heightRun * widthMax
-                        for c = 0, width - 1 do if mask[rowBase + c] ~= dir then ok = false break end end
+                        for c = 0, width - 1 do if dirMask[rowBase + c] ~= dir or matMask[rowBase + c] ~= mat then ok = false break end end
                         if not ok then break end
                         heightRun = heightRun + 1
                     end
@@ -559,8 +586,9 @@ function World:meshChunk(chunkX, chunkZ)
                     local a1 = addVertex(x, y1, z0)
                     local a2 = addVertex(x, y1, z1)
                     local a3 = addVertex(x, y0, z1)
-                    if dir == 1 then addQuad(a0, a1, a2, a3) else addQuad(a0, a3, a2, a1) end
-                    for rr = 0, heightRun - 1 do for cc = 0, width - 1 do mask[idx + cc + rr * widthMax] = 0 end end
+                    local color = MATERIAL_COLOR[mat]
+                    if dir == 1 then faces[#faces+1] = {a0,a1,a2,a3,color} else faces[#faces+1] = {a0,a3,a2,a1,color} end
+                    for rr = 0, heightRun - 1 do for cc = 0, width - 1 do dirMask[idx + cc + rr * widthMax] = 0; matMask[idx + cc + rr * widthMax] = 0 end end
                     col = col + width
                     idx = idx + width
                 else
@@ -573,11 +601,21 @@ function World:meshChunk(chunkX, chunkZ)
 
     for yFace = 0, height do
         local idx = 1
+        local idx = 1
         for z = 1, cols do
             for x = 1, cols do
-                local a = isSolidAt(x, yFace, z)
-                local b = isSolidAt(x, yFace + 1, z)
-                mask[idx] = (a ~= b) and (b and 1 or -1) or 0
+                local aId = sample(x, yFace, z)
+                local bId = sample(x, yFace + 1, z)
+                local aSolid = aId ~= 0
+                local bSolid = bId ~= 0
+                if aSolid ~= bSolid then
+                    local dir = bSolid and 1 or -1
+                    dirMask[idx] = dir
+                    matMask[idx] = dir == 1 and bId or aId
+                else
+                    dirMask[idx] = 0
+                    matMask[idx] = 0
+                end
                 idx = idx + 1
             end
         end
@@ -586,15 +624,16 @@ function World:meshChunk(chunkX, chunkZ)
         for row = 1, rows do
             local col = 1
             while col <= widthMax do
-                local dir = mask[idx]
+                local dir = dirMask[idx]
                 if dir ~= 0 then
+                    local mat = matMask[idx]
                     local width = 1
-                    while col + width <= widthMax and mask[idx + width] == dir do width = width + 1 end
+                    while col + width <= widthMax and dirMask[idx + width] == dir and matMask[idx + width] == mat do width = width + 1 end
                     local heightRun = 1
                     while row + heightRun <= rows do
                         local ok = true
                         local rowBase = idx + heightRun * widthMax
-                        for c = 0, width - 1 do if mask[rowBase + c] ~= dir then ok = false break end end
+                        for c = 0, width - 1 do if dirMask[rowBase + c] ~= dir or matMask[rowBase + c] ~= mat then ok = false break end end
                         if not ok then break end
                         heightRun = heightRun + 1
                     end
@@ -607,8 +646,9 @@ function World:meshChunk(chunkX, chunkZ)
                     local a1 = addVertex(x1, y, z0)
                     local a2 = addVertex(x1, y, z1)
                     local a3 = addVertex(x0, y, z1)
-                    if dir == 1 then addQuad(a0, a1, a2, a3) else addQuad(a0, a3, a2, a1) end
-                    for rr = 0, heightRun - 1 do for cc = 0, width - 1 do mask[idx + cc + rr * widthMax] = 0 end end
+                    local color = MATERIAL_COLOR[mat]
+                    if dir == 1 then faces[#faces+1] = {a0,a1,a2,a3,color} else faces[#faces+1] = {a0,a3,a2,a1,color} end
+                    for rr = 0, heightRun - 1 do for cc = 0, width - 1 do dirMask[idx + cc + rr * widthMax] = 0; matMask[idx + cc + rr * widthMax] = 0 end end
                     col = col + width
                     idx = idx + width
                 else
@@ -621,11 +661,21 @@ function World:meshChunk(chunkX, chunkZ)
 
     for zFace = 0, cols do
         local idx = 1
+        local idx = 1
         for y = 1, height do
             for x = 1, cols do
-                local a = isSolidAt(x, y, zFace)
-                local b = isSolidAt(x, y, zFace + 1)
-                mask[idx] = (a ~= b) and (b and 1 or -1) or 0
+                local aId = sample(x, y, zFace)
+                local bId = sample(x, y, zFace + 1)
+                local aSolid = aId ~= 0
+                local bSolid = bId ~= 0
+                if aSolid ~= bSolid then
+                    local dir = bSolid and 1 or -1
+                    dirMask[idx] = dir
+                    matMask[idx] = dir == 1 and bId or aId
+                else
+                    dirMask[idx] = 0
+                    matMask[idx] = 0
+                end
                 idx = idx + 1
             end
         end
@@ -634,15 +684,16 @@ function World:meshChunk(chunkX, chunkZ)
         for row = 1, rows do
             local col = 1
             while col <= widthMax do
-                local dir = mask[idx]
+                local dir = dirMask[idx]
                 if dir ~= 0 then
+                    local mat = matMask[idx]
                     local width = 1
-                    while col + width <= widthMax and mask[idx + width] == dir do width = width + 1 end
+                    while col + width <= widthMax and dirMask[idx + width] == dir and matMask[idx + width] == mat do width = width + 1 end
                     local heightRun = 1
                     while row + heightRun <= rows do
                         local ok = true
                         local rowBase = idx + heightRun * widthMax
-                        for c = 0, width - 1 do if mask[rowBase + c] ~= dir then ok = false break end end
+                        for c = 0, width - 1 do if dirMask[rowBase + c] ~= dir or matMask[rowBase + c] ~= mat then ok = false break end end
                         if not ok then break end
                         heightRun = heightRun + 1
                     end
@@ -655,8 +706,9 @@ function World:meshChunk(chunkX, chunkZ)
                     local a1 = addVertex(x1, y0, z)
                     local a2 = addVertex(x1, y1, z)
                     local a3 = addVertex(x0, y1, z)
-                    if dir == 1 then addQuad(a0, a1, a2, a3) else addQuad(a0, a3, a2, a1) end
-                    for rr = 0, heightRun - 1 do for cc = 0, width - 1 do mask[idx + cc + rr * widthMax] = 0 end end
+                    local color = MATERIAL_COLOR[mat]
+                    if dir == 1 then faces[#faces+1] = {a0,a1,a2,a3,color} else faces[#faces+1] = {a0,a3,a2,a1,color} end
+                    for rr = 0, heightRun - 1 do for cc = 0, width - 1 do dirMask[idx + cc + rr * widthMax] = 0; matMask[idx + cc + rr * widthMax] = 0 end end
                     col = col + width
                     idx = idx + width
                 else
@@ -799,9 +851,12 @@ function World:generateChunk(cx, cz)
             combinedHeight = (combinedHeight + 1) * 0.5
             
             local h = math.floor(combinedHeight * (WORLD_Y - 1))
-            
             for y = 0, h do
-                self:setBlock(wx, y, wz, 1)
+                if y == h then
+                    self:setBlock(wx, y, wz, 1)
+                else
+                    self:setBlock(wx, y, wz, 2)
+                end
             end
         end
     end
@@ -857,10 +912,12 @@ local function frame()
         local placeX = hit.x + hit.nx
         local placeY = hit.y + hit.ny
         local placeZ = hit.z + hit.nz
-        World:placeBlock(placeX, placeY, placeZ)
+        World:placeBlock(placeX, placeY, placeZ, currentBlockId)
         keys['R'] = false
         moved = true
     end
+    if keys['1'] then currentBlockId = 1 keys['1'] = false end
+    if keys['2'] then currentBlockId = 2 keys['2'] = false end
     
     local currentPlayerCX = math.floor(Renderer.camera.pos[1] / CHUNK)
     local currentPlayerCZ = math.floor(Renderer.camera.pos[3] / CHUNK)
