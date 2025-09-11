@@ -838,4 +838,7 @@ end
 gurt.body:on('keydown', function(event) keys[event.key] = true end)
 gurt.body:on('keyup', function(event) keys[event.key] = false end)
 Time.sleep(2.0)
+Renderer:raycast()
+Renderer:render()
 onNextFrame(frame)
+
