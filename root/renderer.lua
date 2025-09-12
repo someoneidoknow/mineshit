@@ -350,9 +350,9 @@ function Renderer:render()
             local camwy = -self.camera.pos[2]
             local camwz = self.camera.pos[3]
             local ddx = camwx - cxw
-            local ddy = -camwy - cyw
+            local ddy = camwy - cyw
             local ddz = camwz - czw
-            if nx*ddx + ny*ddy + nz*ddz < 0 then
+            if nx*ddx + ny*ddy + nz*ddz > 0 then
                 local intensity = calculateLighting(nx, ny, nz, self.sun)
                 local baseColor = m.color or "#888888"
                 local faceColor = (f.color or f[5])
@@ -434,12 +434,12 @@ local cubeVerts = {
 }
 
 local cubeFaces = {
-    {2,3,4,1},
-    {8,7,6,5},
-    {4,8,5,1},
-    {6,7,3,2},
+    {1,4,3,2},
+    {5,6,7,8},
+    {1,5,8,4},
+    {2,3,7,6},
     {4,8,7,3},
-    {5,6,2,1}
+    {1,2,6,5}
 }
 
 
@@ -622,7 +622,7 @@ function World:meshChunk(chunkX, chunkZ)
                     local a2 = addVertex(x, y1, z1)
                     local a3 = addVertex(x, y0, z1)
                     local color = MATERIAL_COLOR[mat]
-                    if dir == 1 then faces[#faces+1] = {a0,a1,a2,a3,color} else faces[#faces+1] = {a0,a3,a2,a1,color} end
+                    if dir == 1 then faces[#faces+1] = {a0,a3,a2,a1,color} else faces[#faces+1] = {a0,a1,a2,a3,color} end
                     for rr = 0, heightRun - 1 do for cc = 0, width - 1 do dirMask[idx + cc + rr * widthMax] = 0; matMask[idx + cc + rr * widthMax] = 0 end end
                     col = col + width
                     idx = idx + width
@@ -742,7 +742,7 @@ function World:meshChunk(chunkX, chunkZ)
                     local a2 = addVertex(x1, y1, z)
                     local a3 = addVertex(x0, y1, z)
                     local color = MATERIAL_COLOR[mat]
-                    if dir == 1 then faces[#faces+1] = {a0,a1,a2,a3,color} else faces[#faces+1] = {a0,a3,a2,a1,color} end
+                    if dir == 1 then faces[#faces+1] = {a0,a3,a2,a1,color} else faces[#faces+1] = {a0,a1,a2,a3,color} end
                     for rr = 0, heightRun - 1 do for cc = 0, width - 1 do dirMask[idx + cc + rr * widthMax] = 0; matMask[idx + cc + rr * widthMax] = 0 end end
                     col = col + width
                     idx = idx + width
