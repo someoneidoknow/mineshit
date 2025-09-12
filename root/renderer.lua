@@ -454,7 +454,7 @@ local function idx(x,y,z) return y*CHUNK*CHUNK + z*CHUNK + x + 1 end
 
 function World:getChunk(cx,cz) return self.chunks[k(cx,cz)] end
 function World:newChunk(cx,cz)
-    local c = {cx=cx, cz=cz, data={}, verts=nil, faces=nil}
+    local c = {cx=cx, cz=cz, data={}, verts=nil, faces=nil, dirty=false}
     local n = CHUNK*WORLD_Y*CHUNK
     for i=1,n do c.data[i]=0 end
     self.chunks[k(cx,cz)] = c
@@ -470,11 +470,13 @@ function World:placeBlock(wx, wy, wz, val)
     local lx = wx - cx * CHUNK
     local lz = wz - cz * CHUNK
     chunk.data[idx(lx, wy, lz)] = val or 1
+    chunk.dirty = true
     self:remeshChunk(cx, cz)
     if lx == 0 then self:remeshChunk(cx-1, cz) end
     if lx == CHUNK-1 then self:remeshChunk(cx+1, cz) end
     if lz == 0 then self:remeshChunk(cx, cz-1) end
     if lz == CHUNK-1 then self:remeshChunk(cx, cz+1) end
+    self:saveChunkToCrumb(cx, cz)
     return true
 end
 
@@ -487,11 +489,13 @@ function World:removeBlock(wx, wy, wz)
     local lx = wx - cx * CHUNK
     local lz = wz - cz * CHUNK
     chunk.data[idx(lx, wy, lz)] = 0
+    chunk.dirty = true
     self:remeshChunk(cx, cz)
     if lx == 0 then self:remeshChunk(cx-1, cz) end
     if lx == CHUNK-1 then self:remeshChunk(cx+1, cz) end
     if lz == 0 then self:remeshChunk(cx, cz-1) end
     if lz == CHUNK-1 then self:remeshChunk(cx, cz+1) end
+    self:saveChunkToCrumb(cx, cz)
     return true
 end
 
@@ -549,6 +553,177 @@ function World:getBlock(wx,wy,wz)
     return c.data[idx(lx,wy,lz)] or 0
 end
 
+function World:saveToCrumb()
+    local nPer = CHUNK*WORLD_Y*CHUNK
+    local list = {}
+    for _, c in pairs(self.chunks) do list[#list+1] = c end
+    local function pack32(n)
+        local u = n % 4294967296
+        local b1 = u % 256; u = math.floor(u/256)
+        local b2 = u % 256; u = math.floor(u/256)
+        local b3 = u % 256; u = math.floor(u/256)
+        local b4 = u % 256
+        return string.char(b1,b2,b3,b4)
+    end
+    local parts = {}
+    parts[#parts+1] = "WLD1"..pack32(CHUNK)..pack32(WORLD_Y)..pack32(#list)
+    for i=1,#list do
+        local c = list[i]
+        parts[#parts+1] = pack32(c.cx)..pack32(c.cz)
+        local bytes = {}
+        for j=1,nPer do
+            local v = c.data[j] or 0
+            if v < 0 then v = 0 elseif v > 255 then v = 255 end
+            bytes[#bytes+1] = string.char(v)
+        end
+        parts[#parts+1] = table.concat(bytes)
+    end
+    local blob = table.concat(parts)
+    gurt.crumbs.set({ name = "world", value = blob })
+end
+
+function World:loadFromCrumb()
+    local blob = gurt.crumbs.get("world")
+    if not blob or #blob < 16 then return false end
+    if blob:sub(1,4) ~= "WLD1" then return false end
+    local function u32(s, off)
+        local b1 = string.byte(s, off) or 0
+        local b2 = string.byte(s, off+1) or 0
+        local b3 = string.byte(s, off+2) or 0
+        local b4 = string.byte(s, off+3) or 0
+        local u = b1 + b2*256 + b3*65536 + b4*16777216
+        if u >= 2147483648 then u = u - 4294967296 end
+        return u, off+4
+    end
+    local off = 5
+    local _, o1 = u32(blob, off); off = o1
+    local _, o2 = u32(blob, off); off = o2
+    local count; count, off = u32(blob, off)
+    local nPer = CHUNK*WORLD_Y*CHUNK
+    for i=1,count do
+        local cx; cx, off = u32(blob, off)
+        local cz; cz, off = u32(blob, off)
+        local c = self:getChunk(cx,cz) or self:newChunk(cx,cz)
+        for j=1,nPer do
+            local pos = off + j - 1
+            local val = string.byte(blob, pos) or 0
+            c.data[j] = val
+        end
+        off = off + nPer
+    end
+    return true
+end
+
+local function __hexNibble(n)
+    return (n < 10) and (48 + n) or (87 + n)
+end
+
+local function __hexByte(n)
+    local hi = math.floor(n/16)
+    local lo = n % 16
+    return string.char(__hexNibble(hi)) .. string.char(__hexNibble(lo))
+end
+
+local function __hexToVal(c)
+    if c >= 48 and c <= 57 then return c - 48 end
+    if c >= 97 and c <= 102 then return c - 87 end
+    if c >= 65 and c <= 70 then return c - 55 end
+    return 0
+end
+
+local function __hexToByte(b1, b2)
+    return __hexToVal(b1) * 16 + __hexToVal(b2)
+end
+
+local function __hex16(n)
+    local hi = math.floor(n / 4096) % 16
+    local h2 = math.floor(n / 256) % 16
+    local h3 = math.floor(n / 16) % 16
+    local lo = n % 16
+    return string.char(__hexNibble(hi)) .. string.char(__hexNibble(h2)) .. string.char(__hexNibble(h3)) .. string.char(__hexNibble(lo))
+end
+
+local function __hex4ToNum(b1,b2,b3,b4)
+    return (__hexToVal(b1) * 4096) + (__hexToVal(b2) * 256) + (__hexToVal(b3) * 16) + __hexToVal(b4)
+end
+
+function World:saveChunkToCrumb(cx, cz)
+    local c = self:getChunk(cx,cz)
+    if not c or not c.dirty then return false end
+    local nPer = CHUNK*WORLD_Y*CHUNK
+    local t = {"WCR1:"}
+    local i = 1
+    while i <= nPer do
+        local v = c.data[i] or 0
+        if v < 0 then v = 0 elseif v > 255 then v = 255 end
+        local run = 1
+        while i + run <= nPer and c.data[i + run] == v and run < 65535 do
+            run = run + 1
+        end
+        if run >= 3 then
+            t[#t+1] = "!" .. __hexByte(v) .. __hex16(run)
+            i = i + run
+        else
+            t[#t+1] = __hexByte(v)
+            i = i + 1
+        end
+    end
+    local name = "world:"..cx..","..cz
+    gurt.crumbs.set({ name = name, value = table.concat(t) })
+    c.dirty = false
+    return true
+end
+
+function World:loadAllChunksFromCrumbs()
+    local all = gurt.crumbs.getAll()
+    if not all then return 0 end
+    local loaded = 0
+    local nPer = CHUNK*WORLD_Y*CHUNK
+    for name, crumb in pairs(all) do
+        local sx, sz = string.match(name, "^world:(-?%d+),(-?%d+)$")
+        if sx and crumb and crumb.value then
+            local v = crumb.value
+            local cx = tonumber(sx)
+            local cz = tonumber(sz)
+            local c = self:getChunk(cx,cz) or self:newChunk(cx,cz)
+            if #v >= 5 and v:sub(1,5) == "WCR1:" then
+                local pos = 6
+                local i = 1
+                while i <= nPer and pos <= #v do
+                    local ch = string.byte(v, pos)
+                    if ch == 33 then
+                        local b1 = string.byte(v, pos+1)
+                        local b2 = string.byte(v, pos+2)
+                        local r1 = string.byte(v, pos+3)
+                        local r2 = string.byte(v, pos+4)
+                        local r3 = string.byte(v, pos+5)
+                        local r4 = string.byte(v, pos+6)
+                        if not b1 or not b2 or not r1 or not r2 or not r3 or not r4 then break end
+                        local val = __hexToByte(b1, b2)
+                        local run = __hex4ToNum(r1,r2,r3,r4)
+                        for k2=1,run do
+                            if i > nPer then break end
+                            c.data[i] = val
+                            i = i + 1
+                        end
+                        pos = pos + 7
+                    else
+                        local b1 = string.byte(v, pos)
+                        local b2 = string.byte(v, pos+1)
+                        if not b1 or not b2 then break end
+                        c.data[i] = __hexToByte(b1, b2)
+                        i = i + 1
+                        pos = pos + 2
+                    end
+                end
+                c.dirty = false
+                loaded = loaded + 1
+            end
+        end
+    end
+    return loaded
+end
+
 function World:meshChunk(chunkX, chunkZ)
     if not self:getChunk(chunkX - 1, chunkZ) then self:generateChunk(chunkX - 1, chunkZ) end
     if not self:getChunk(chunkX + 1, chunkZ) then self:generateChunk(chunkX + 1, chunkZ) end
@@ -558,9 +733,6 @@ function World:meshChunk(chunkX, chunkZ)
     local function addVertex(x, y, z)
         vertices[#vertices + 1] = { x * SCALE, y * SCALE, z * SCALE }
         return #vertices
-    end
-    local function addQuad(i1, i2, i3, i4)
-        faces[#faces + 1] = { i1, i2, i3, i4 }
     end
     local height = WORLD_Y
     local cols = CHUNK
@@ -897,6 +1069,8 @@ function World:generateChunk(cx, cz)
     end
 end
 
+
+World:loadAllChunksFromCrumbs()
 World:updateChunksAroundPlayer(Renderer.camera.pos[1], Renderer.camera.pos[3])
 local framequeued = false
 local lastPlayerCX, lastPlayerCZ = nil, nil
