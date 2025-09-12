@@ -1127,7 +1127,9 @@ local function frame()
     end
     if keys['1'] then currentBlockId = 1 keys['1'] = false end
     if keys['2'] then currentBlockId = 2 keys['2'] = false end
-    
+    if keys['Kp Add'] or keys['Equal'] then RENDER_DISTANCE = math.min(RENDER_DISTANCE + 1, 10) keys['Kp Add'] = false keys['Equal'] = false World:updateChunksAroundPlayer(Renderer.camera.pos[1], Renderer.camera.pos[3]) moved = true end
+    if keys['Minus'] then RENDER_DISTANCE = math.max(RENDER_DISTANCE - 1, 1) keys['Minus'] = false World:updateChunksAroundPlayer(Renderer.camera.pos[1], Renderer.camera.pos[3]) moved = true end
+
     local currentPlayerCX = math.floor(Renderer.camera.pos[1] / CHUNK)
     local currentPlayerCZ = math.floor(Renderer.camera.pos[3] / CHUNK)
     
